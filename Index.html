@@ -111,7 +111,7 @@ svg .brk{fill:none;stroke:var(--amber);stroke-width:2.2}
 /* ═════════ 列印版面：隱藏整個網頁，只輸出 #printArea（一層一頁，白底黑字省墨） ═════════ */
 @media print{
   html,body{height:auto!important;overflow:visible!important;background:#fff!important}
-  #app,#pmodal{display:none!important}
+  #app,#pmodal,#rmodal,#wmodal{display:none!important}
   #printArea{display:block!important}
   #printArea .page{page-break-after:always;break-after:page;overflow:hidden;color:#000;
     -webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -131,7 +131,40 @@ svg .brk{fill:none;stroke:var(--amber);stroke-width:2.2}
   #printArea svg .lbl rect{fill:#fff;fill-opacity:.9;stroke:#666}
   #printArea svg .lbl .n{fill:#000}
   #printArea svg .lbl .t{fill:#222}
+  /* ── 指定房號的醒目標示：螢光黃底＋粗紅框＋外圈紅環（黑白列印時仍以粗框與灰底辨識）── */
+  #printArea svg .lbl.mark rect{fill:#ffe14d;fill-opacity:1;stroke:#d00000;stroke-width:2.4}
+  #printArea svg .lbl.mark .n,#printArea svg .lbl.mark .t{fill:#000}
+  #printArea svg .mk-ring{fill:#d00000;fill-opacity:.10;stroke:#d00000;stroke-width:2.6}
+  #printArea svg .mk-ring2{fill:none;stroke:#d00000;stroke-width:1.2;stroke-dasharray:5 4}
+  #printArea .pr.mk{background:#ffe14d;font-weight:700;outline:.3mm solid #d00000}
 }
+
+/* ═════════ 「選擇房號」對話框與警告對話框 ═════════ */
+#rmodal,#wmodal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center}
+#rmodal{z-index:60} #wmodal{z-index:70}
+.box2{background:var(--panel);border:1px solid var(--cyan);border-radius:6px;padding:18px 20px;
+  box-shadow:0 0 24px #35e0ff55;max-width:94vw}
+#rbox{width:560px} #wbox{width:420px;border-color:var(--amber);box-shadow:0 0 24px #ffc23d55}
+.box2 h2{margin:0 0 10px;font-size:16px;color:var(--cyan)} #wbox h2{color:var(--amber)}
+#rsearch{width:100%;padding:7px 10px;margin-bottom:8px;background:#06121f;border:1px solid var(--line);
+  color:var(--text);border-radius:4px;outline:none}
+#rlist{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:4px 10px}
+.rf{margin:6px 0 2px;padding:4px 0;border-bottom:1px solid var(--line);color:var(--cyan2);font-weight:700;
+  display:flex;align-items:center;gap:6px}
+.rg{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.ri{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:13px;cursor:pointer}
+.ri .no{color:var(--cyan2);font-family:Consolas,monospace;min-width:46px}
+#rfoot{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+#rcount{color:var(--amber);font-size:13px}
+.box2 button{padding:6px 16px;margin-left:8px;border-radius:3px;cursor:pointer;font-size:14px;
+  border:1px solid var(--line);background:#06121f;color:var(--text)}
+.box2 button.go{background:var(--cyan);color:#001018;border-color:var(--cyan)}
+#wbox button.go{background:var(--amber);border-color:var(--amber)}
+#wmsg{font-size:13px;line-height:1.7;max-height:36vh;overflow:auto}
+#wbtns{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+#pmarkBtn{padding:5px 14px;border-radius:3px;cursor:pointer;font-size:13px;background:#06121f;
+  color:var(--amber);border:1px solid var(--amber)}
+#pmarkBtn:hover{background:#ffc23d22}
 </style>
 </head>
 <body>
@@ -170,8 +203,29 @@ svg .brk{fill:none;stroke:var(--amber);stroke-width:2.2}
   <label><input type="radio" name="pori" value="landscape"> 橫印</label>
   <h3>其他選項</h3>
   <label><input type="checkbox" id="plist"> 房號列印（在圖左側列出房號清單）</label>
+  <div style="margin-top:8px"><button id="pmarkBtn">選擇房號（0）</button>
+    <span style="font-size:12px;color:var(--dim)"> 列印時在圖上醒目標示</span></div>
   <div id="pstatus"></div>
   <div id="pbtns"><button id="pcancel">取消</button><button id="pgo" class="go">列印</button></div>
+</div></div>
+
+<!-- ═════════ 選擇房號對話框 ═════════ -->
+<div id="rmodal"><div id="rbox" class="box2">
+  <h2>選擇要在圖上標示的房號</h2>
+  <input id="rsearch" placeholder="搜尋房號或房名…">
+  <div id="rlist"></div>
+  <div id="rfoot"><span id="rcount"></span>
+    <span><button id="rclear">清除全部</button><button id="rdone" class="go">完成</button></span></div>
+</div></div>
+<!-- ═════════ 警告對話框：勾選的房號不在列印樓層內 ═════════ -->
+<div id="wmodal"><div id="wbox" class="box2">
+  <h2>⚠ 部分房號不在列印範圍</h2>
+  <div id="wmsg"></div>
+  <div id="wbtns">
+    <button id="wback">返回修改</button>
+    <button id="wignore">忽略並列印</button>
+    <button id="wadd" class="go">加入樓層並列印</button>
+  </div>
 </div></div>
 <div id="printArea"></div>
 <style id="pageStyle"></style>
@@ -311,13 +365,14 @@ function render(fl) {
  *  - svg：目標 <svg> 元素（螢幕畫面或列印頁都能用）
  *  - fl ：樓層名稱，用來從 DATA.rooms 篩出該層房間
  *  - k  ：字體與外框的放大倍率（螢幕=1；列印為了清楚會放大）
+ *  - marks：（選用）要醒目標示的房號集合 Set；只有列印時會傳入
  * 只有「試算表有、SVG 錨點也有」的房號才會畫出標籤。
  */
-function buildLabels(svg, fl, k) {
+function buildLabels(svg, fl, k, marks) {
   const g = document.createElementNS(SVGNS, 'g');
   g.setAttribute('id', 'labels');
   svg.appendChild(g);
-  const missing = [];
+  const missing = [], topList = [];
   DATA.rooms.filter(function (r) { return r.floor === fl; }).forEach(function (r) {
     const a = svg.querySelector('.anchor[data-room="' + cssEsc(r.room) + '"]');
     if (!a) { missing.push(r.room); return; }              // 試算表有房號、圖上沒座標
@@ -335,13 +390,77 @@ function buildLabels(svg, fl, k) {
       '<rect x="' + (x - w / 2) + '" y="' + (y - h / 2) + '" width="' + w + '" height="' + h + '" rx="2"/>' +
       '<text class="n"' + fn + ' x="' + x + '" y="' + (y - (nm ? 1 : -3) * k) + '">' + esc(r.room) + '</text>' +
       (nm ? '<text class="t"' + ft + ' x="' + x + '" y="' + (y + 8.5 * k) + '">' + esc(nm) + '</text>' : '');
-    g.appendChild(L);
+    if (marks && marks.has(r.room)) {                      // ★ 指定房號：加外圈紅環，並移到最上層
+      L.setAttribute('class', 'lbl mark');
+      const rr = Math.sqrt(w * w + h * h) / 2 + 7 * k;      // 外圈半徑＝標籤外框對角線的一半再加一點
+      L.insertAdjacentHTML('afterbegin',
+        '<circle class="mk-ring" cx="' + x + '" cy="' + y + '" r="' + rr + '"/>' +
+        '<circle class="mk-ring2" cx="' + x + '" cy="' + y + '" r="' + (rr + 5 * k) + '"/>');
+      topList.push(L);
+    } else g.appendChild(L);
   });
+  topList.forEach(function (L) { g.appendChild(L); });      // 標示的房號最後加入 → 蓋在其他標籤之上
   if (missing.length) console.warn('[' + fl + '] 以下房號在圖層中找不到座標錨點：', missing.join(', '));
 }
 
 // ═════════════════════ 列印功能 ═════════════════════
 // 流程：開對話框 → 勾選樓層/紙張/方向 → 載入尚未快取的 SVG → 組出「一層一頁」的列印區 → window.print()
+
+// ───── 指定標示的房號（列印時醒目標示）─────
+const markSet = new Set();                                  // 元素格式：「樓層|房號」
+const mkKey = function (fl, rm) { return fl + '|' + rm; };
+/** 取得目前仍存在於試算表中的已標示房號（試算表若刪了房間，舊標示自動作廢） */
+function marked() {
+  return DATA.rooms.filter(function (r) { return markSet.has(mkKey(r.floor, r.room)); });
+}
+function updMarkBtn() { $('pmarkBtn').textContent = '選擇房號（' + marked().length + '）'; }
+
+/** 建立「選擇房號」清單：依樓層分組，每間房一個勾選方塊 */
+function buildPicker() {
+  const kw = $('rsearch').value.trim().toLowerCase();
+  const box = $('rlist');
+  box.innerHTML = '';
+  DATA.floors.forEach(function (fl) {
+    const list = DATA.rooms.filter(function (r) {
+      return r.floor === fl && (!kw || (r.room + ' ' + r.name).toLowerCase().indexOf(kw) > -1);
+    });
+    if (!list.length) return;
+    const head = document.createElement('label');
+    head.className = 'rf';
+    const all = document.createElement('input');            // 樓層全選方塊
+    all.type = 'checkbox';
+    all.checked = list.every(function (r) { return markSet.has(mkKey(fl, r.room)); });
+    all.onchange = function () {
+      list.forEach(function (r) { all.checked ? markSet.add(mkKey(fl, r.room)) : markSet.delete(mkKey(fl, r.room)); });
+      buildPicker();
+    };
+    head.appendChild(all);
+    head.appendChild(document.createTextNode(fl + '（' + list.length + ' 間）'));
+    box.appendChild(head);
+    const grid = document.createElement('div');
+    grid.className = 'rg';
+    list.forEach(function (r) {
+      const lb = document.createElement('label');
+      lb.className = 'ri';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = markSet.has(mkKey(fl, r.room));
+      cb.onchange = function () {
+        cb.checked ? markSet.add(mkKey(fl, r.room)) : markSet.delete(mkKey(fl, r.room));
+        $('rcount').textContent = '已選 ' + marked().length + ' 間';
+      };
+      lb.appendChild(cb);
+      lb.insertAdjacentHTML('beforeend', '<span class="no">' + esc(r.room) + '</span><span>' + esc(r.name) + '</span>');
+      grid.appendChild(lb);
+    });
+    box.appendChild(grid);
+  });
+  $('rcount').textContent = '已選 ' + marked().length + ' 間';
+}
+$('pmarkBtn').onclick = function () { $('rsearch').value = ''; buildPicker(); $('rmodal').style.display = 'flex'; };
+$('rsearch').addEventListener('input', buildPicker);
+$('rclear').onclick = function () { markSet.clear(); buildPicker(); };
+$('rdone').onclick = function () { $('rmodal').style.display = 'none'; updMarkBtn(); };
 
 /** 紙張尺寸（mm，直印時的寬×高） */
 const PAPER = { A4: [210, 297], A3: [297, 420] };
@@ -357,6 +476,7 @@ $('printBtn').onclick = function () {
   });
   $('pall').checked = false;
   $('pstatus').textContent = '';
+  updMarkBtn();
   $('pmodal').style.display = 'flex';
 };
 $('pall').onchange = function () {                          // 全選／取消全選
@@ -371,6 +491,28 @@ $('pgo').onclick = function () {
   const size = document.querySelector('input[name=psize]:checked').value;
   const ori = document.querySelector('input[name=pori]:checked').value;
   const withList = $('plist').checked;                      // 是否列印房號清單
+
+  // —— 檢查：已選房號所在樓層，是否都在「要列印的樓層」內 ——
+  const out = marked().filter(function (r) { return floors.indexOf(r.floor) === -1; });
+  if (!out.length) { startPrint(floors, size, ori, withList); return; }
+
+  const byFl = {};                                          // 依樓層整理缺少的房號
+  out.forEach(function (r) { (byFl[r.floor] = byFl[r.floor] || []).push(r.room); });
+  $('wmsg').innerHTML = '以下已選取的房號，其所在樓層<b>沒有勾選列印</b>，圖上不會出現標示：<br>' +
+    Object.keys(byFl).map(function (f) { return '・' + esc(f) + '：' + esc(byFl[f].join('、')); }).join('<br>');
+  $('wmodal').style.display = 'flex';
+  $('wback').onclick = function () { $('wmodal').style.display = 'none'; };            // 回去改選
+  $('wignore').onclick = function () { $('wmodal').style.display = 'none'; startPrint(floors, size, ori, withList); };
+  $('wadd').onclick = function () {                                                     // 自動補上缺少的樓層
+    $('wmodal').style.display = 'none';
+    const all = DATA.floors.filter(function (f) { return floors.indexOf(f) > -1 || byFl[f]; });
+    document.querySelectorAll('.pf').forEach(function (c) { c.checked = all.indexOf(c.value) > -1; });
+    startPrint(all, size, ori, withList);
+  };
+};
+
+/** 實際開始列印：載入圖層 → 組版 → 開啟瀏覽器列印視窗 */
+function startPrint(floors, size, ori, withList) {
   $('pgo').disabled = true;
   $('pstatus').textContent = '準備中…';
   loadSvgs(floors, function () {                            // 全部樓層的 SVG 都就緒後才組版
@@ -380,7 +522,7 @@ $('pgo').onclick = function () {
     $('pmodal').style.display = 'none';
     setTimeout(function () { window.print(); }, 200);       // 稍等排版完成再開啟列印視窗
   });
-};
+}
 // 列印完成（或取消）後清掉列印區，釋放記憶體
 window.addEventListener('afterprint', function () { $('printArea').innerHTML = ''; });
 
@@ -415,6 +557,8 @@ function buildPrintPages(floors, size, ori, withList) {
     page.style.width = (W - 2 * MARGIN - 1) + 'mm';
     page.style.height = (H - 2 * MARGIN - 1) + 'mm';
     page.innerHTML = '<div class="ph"><b>' + esc(fl) + ' 平面圖</b><span>' + esc(document.title) + '｜' + today + '</span></div>';
+    const mset = new Set();                                 // 此樓層要醒目標示的房號
+    marked().forEach(function (r) { if (r.floor === fl) mset.add(r.room); });
     const bodyH = H - 2 * MARGIN - 1 - 11;                  // 扣掉標題列後，圖面可用高度（mm）
     const body = document.createElement('div');
     body.className = 'pbody';
@@ -433,7 +577,7 @@ function buildPrintPages(floors, size, ori, withList) {
       box.style.fontSize = fs + 'mm';
       box.style.lineHeight = lh + 'mm';
       box.innerHTML = '<div class="pt">房號清單（' + list.length + ' 間）</div>' + list.map(function (r) {
-        return '<div class="pr"><b>' + esc(r.room) + '</b><span>' + esc(r.name) + '</span></div>';
+        return '<div class="pr' + (mset.has(r.room) ? ' mk' : '') + '"><b>' + esc(r.room) + '</b><span>' + esc(r.name) + '</span></div>';
       }).join('');
       body.appendChild(box);
     }
@@ -443,7 +587,7 @@ function buildPrintPages(floors, size, ori, withList) {
     const svg = body.querySelector('svg');
     svg.removeAttribute('width'); svg.removeAttribute('height');
     svg.style.cssText = 'flex:1 1 0;min-width:0;width:0;height:100%';   // 佔滿剩餘寬度，等比縮放置中
-    buildLabels(svg, fl, 1.25);                             // 列印標籤放大 1.25 倍較清楚
+    buildLabels(svg, fl, 1.25, mset);                       // 列印標籤放大 1.25 倍較清楚；mset=要標示的房號
     area.appendChild(page);
   });
 }
