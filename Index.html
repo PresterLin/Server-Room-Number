@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<title><?= appTitle ?></title>
+<style>
+/* ═════════ 色彩與基本版面（科技感：深藍底＋青色發光） ═════════ */
+:root{
+  --bg:#050d18; --panel:#0a1a2b; --line:#16405f; --cyan:#35e0ff; --cyan2:#7df3ff;
+  --amber:#ffc23d; --text:#cfe9f7; --dim:#6f93aa;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
+  font-family:"Noto Sans TC","Microsoft JhengHei",Arial,sans-serif;overflow:hidden}
+#app{display:flex;height:100%}
+
+/* ═════════ 左側：搜尋＋樹狀選單 ═════════ */
+#side{width:300px;min-width:240px;background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column}
+#side h1{margin:0;padding:14px 16px;font-size:16px;letter-spacing:2px;color:var(--cyan);
+  border-bottom:1px solid var(--line);text-shadow:0 0 8px var(--cyan)}
+#search{margin:10px;padding:8px 10px;background:#06121f;border:1px solid var(--line);
+  color:var(--text);border-radius:4px;outline:none}
+#search:focus{border-color:var(--cyan);box-shadow:0 0 8px #35e0ff55}
+#tree{flex:1;overflow:auto;padding:0 6px 14px}
+.floor{margin-top:4px}
+.floor-h{cursor:pointer;padding:7px 10px;border-left:3px solid var(--cyan);background:#0d2338;
+  display:flex;justify-content:space-between;user-select:none}
+.floor-h:hover{background:#12304b}
+.floor-h .cnt{color:var(--dim);font-size:12px}
+.floor-h::before{content:"▸";margin-right:6px;color:var(--cyan);transition:.2s}
+.floor.open .floor-h::before{transform:rotate(90deg)}
+.rooms{display:none;margin:2px 0 4px 14px;border-left:1px dashed var(--line)}
+.floor.open .rooms{display:block}
+.room{cursor:pointer;padding:5px 10px;font-size:13px;display:flex;gap:10px}
+.room .no{color:var(--cyan2);min-width:48px;font-family:Consolas,monospace}
+.room:hover{background:#0f2b44}
+.room.active{background:#0f3a57;box-shadow:inset 3px 0 var(--amber)}
+.room.nosvg{opacity:.5}
+
+/* ═════════ 右側：圖面舞台 ═════════ */
+#main{flex:1;position:relative;display:flex;flex-direction:column;min-width:0}
+#tabs{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.tab{padding:5px 14px;border:1px solid var(--line);border-radius:3px;cursor:pointer;font-size:13px;color:var(--dim)}
+.tab:hover{color:var(--text)}
+.tab.on{color:#001018;background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 12px #35e0ff88}
+#stage{flex:1;position:relative;overflow:hidden;cursor:grab;
+  /* 科技感網格背景 */
+  background:
+    radial-gradient(ellipse at center,#0b2238 0%,#050d18 75%),
+    repeating-linear-gradient(0deg,transparent 0 39px,#10324a55 39px 40px),
+    repeating-linear-gradient(90deg,transparent 0 39px,#10324a55 39px 40px);
+  background-blend-mode:normal}
+#stage.drag{cursor:grabbing}
+#stage svg{width:100%;height:100%;display:block}
+/* 掃描線（持續由上往下掃） */
+#scan{position:absolute;left:0;right:0;height:120px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,#35e0ff18 60%,#35e0ff40 100%);
+  animation:scan 6s linear infinite}
+@keyframes scan{from{top:-120px}to{top:100%}}
+#hud{position:absolute;left:14px;bottom:12px;pointer-events:none;font-family:Consolas,monospace;
+  font-size:12px;color:var(--cyan);text-shadow:0 0 6px var(--cyan);line-height:1.6}
+#msg{position:absolute;top:14px;left:50%;transform:translateX(-50%);padding:8px 16px;
+  background:#2a1a05;border:1px solid var(--amber);color:var(--amber);border-radius:4px;display:none}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--cyan);letter-spacing:4px;background:#050d18cc;display:none}
+
+/* ═════════ SVG 內的樣式（圖層本身只存幾何，樣式統一在這裡改） ═════════ */
+svg .wall-fill{fill:#1c6f93;stroke:none;filter:drop-shadow(0 0 2px #35e0ff)}
+svg .wall-line{fill:none;stroke:#2f9fc6;stroke-width:.9;opacity:.85}
+svg .lbl{pointer-events:none;text-anchor:middle}
+svg .lbl .n{font:700 9px Consolas,monospace;fill:#7df3ff}
+svg .lbl .t{font:400 8.5px "Microsoft JhengHei",Arial,sans-serif;fill:#cfe9f7}
+svg .lbl rect{fill:#041320;fill-opacity:.78;stroke:#1c6f93;stroke-width:.5}
+/* 被選取房間：放大＋琥珀色 */
+svg .lbl.sel rect{fill:#2a1c03;stroke:var(--amber);stroke-width:1.2}
+svg .lbl.sel .n{fill:var(--amber);font-size:14px}
+svg .lbl.sel .t{fill:#fff;font-size:12.5px}
+/* 定位特效：向外擴散的雷達環、十字線 */
+svg .ring{fill:none;stroke:var(--amber);stroke-width:2;transform-box:fill-box;
+  transform-origin:center;animation:ping 1.8s ease-out infinite}
+svg .ring.r2{animation-delay:.6s} svg .ring.r3{animation-delay:1.2s}
+@keyframes ping{from{transform:scale(.2);opacity:1}to{transform:scale(1);opacity:0}}
+svg .core{fill:var(--amber);filter:drop-shadow(0 0 6px var(--amber))}
+svg .cross{stroke:var(--amber);stroke-width:.8;stroke-dasharray:6 5;opacity:.7;
+  animation:dash 1s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-22}}
+svg .brk{fill:none;stroke:var(--amber);stroke-width:2.2}
+
+/* ═════════ 列印功能：按鈕與對話框 ═════════ */
+#bar{display:flex;align-items:center;background:var(--panel);border-bottom:1px solid var(--line)}
+#tabs{flex:1;border-bottom:none}
+#printBtn{margin:0 12px;padding:6px 14px;background:transparent;color:var(--cyan);cursor:pointer;
+  border:1px solid var(--cyan);border-radius:3px;font-size:13px}
+#printBtn:hover{background:#35e0ff22;box-shadow:0 0 10px #35e0ff66}
+#pmodal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:50}
+#pbox{width:360px;max-width:92vw;background:var(--panel);border:1px solid var(--cyan);border-radius:6px;
+  padding:18px 20px;box-shadow:0 0 24px #35e0ff55}
+#pbox h2{margin:0 0 12px;font-size:16px;color:var(--cyan)}
+#pbox h3{margin:14px 0 6px;font-size:13px;color:var(--dim);font-weight:400}
+#pbox label{display:inline-flex;align-items:center;gap:5px;margin:3px 14px 3px 0;font-size:14px;cursor:pointer}
+#pfloors{max-height:150px;overflow:auto}
+#pbtns{margin-top:18px;text-align:right}
+#pbtns button{padding:6px 18px;margin-left:8px;border-radius:3px;cursor:pointer;font-size:14px;
+  border:1px solid var(--line);background:#06121f;color:var(--text)}
+#pbtns button.go{background:var(--cyan);color:#001018;border-color:var(--cyan)}
+#pstatus{margin-top:10px;font-size:12px;color:var(--amber);min-height:16px}
+#printArea{display:none}
+
+/* ═════════ 列印版面：隱藏整個網頁，只輸出 #printArea（一層一頁，白底黑字省墨） ═════════ */
+@media print{
+  html,body{height:auto!important;overflow:visible!important;background:#fff!important}
+  #app,#pmodal{display:none!important}
+  #printArea{display:block!important}
+  #printArea .page{page-break-after:always;break-after:page;overflow:hidden;color:#000;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #printArea .page:last-child{page-break-after:auto;break-after:auto}
+  #printArea .ph{display:flex;justify-content:space-between;align-items:baseline;height:9mm;
+    border-bottom:.4mm solid #000;font-family:"Microsoft JhengHei",Arial,sans-serif}
+  #printArea .ph b{font-size:15pt} #printArea .ph span{font-size:9pt;color:#444}
+  #printArea svg{display:block}
+  #printArea .pbody{display:flex;align-items:stretch}
+  #printArea .plist{flex:none;box-sizing:border-box;padding-right:3mm;margin-right:3mm;
+    border-right:.3mm solid #999;overflow:hidden;font-family:"Microsoft JhengHei",Arial,sans-serif}
+  #printArea .plist .pt{font-weight:700;border-bottom:.3mm solid #000;margin-bottom:1mm}
+  #printArea .pr{display:flex;gap:2mm;white-space:nowrap;overflow:hidden}
+  #printArea .pr b{flex:none;width:12mm;font-family:Consolas,monospace}
+  #printArea svg .wall-fill{fill:#444;filter:none}
+  #printArea svg .wall-line{stroke:#666;opacity:1}
+  #printArea svg .lbl rect{fill:#fff;fill-opacity:.9;stroke:#666}
+  #printArea svg .lbl .n{fill:#000}
+  #printArea svg .lbl .t{fill:#222}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ═════════ 左側面板 ═════════ -->
+  <div id="side">
+    <h1>◈ <?= appTitle ?></h1>
+    <input id="search" placeholder="搜尋房號或房名…（例：弱電、B107）">
+    <div id="tree"></div>
+  </div>
+
+  <!-- ═════════ 右側舞台 ═════════ -->
+  <div id="main">
+    <div id="bar"><div id="tabs"></div><button id="printBtn">🖨 列印</button></div>
+    <div id="stage">
+      <div id="scan"></div>
+      <div id="msg"></div>
+      <div id="loading">LOADING…</div>
+      <div id="hud"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═════════ 列印設定對話框 ═════════ -->
+<div id="pmodal"><div id="pbox">
+  <h2>🖨 列印樓層平面圖</h2>
+  <h3>選擇樓層（一層一張紙）</h3>
+  <label><input type="checkbox" id="pall"> 全選</label>
+  <div id="pfloors"></div>
+  <h3>紙張大小</h3>
+  <label><input type="radio" name="psize" value="A4" checked> A4</label>
+  <label><input type="radio" name="psize" value="A3"> A3</label>
+  <h3>列印方向</h3>
+  <label><input type="radio" name="pori" value="portrait" checked> 直印</label>
+  <label><input type="radio" name="pori" value="landscape"> 橫印</label>
+  <h3>其他選項</h3>
+  <label><input type="checkbox" id="plist"> 房號列印（在圖左側列出房號清單）</label>
+  <div id="pstatus"></div>
+  <div id="pbtns"><button id="pcancel">取消</button><button id="pgo" class="go">列印</button></div>
+</div></div>
+<div id="printArea"></div>
+<style id="pageStyle"></style>
+
+<script>
+/* ============================================================
+ *  前端程式：資料載入 → 畫樹狀選單 → 載入 SVG → 標註房號房名 → 點擊定位動畫
+ * ============================================================ */
+
+// ───── 全域狀態 ─────
+let DATA = { floors: [], rooms: [] };   // 由 getInitData() 取得
+const svgCache = {};                     // 已載入的 SVG 字串快取：{ 樓層: svg 文字 }
+let curFloor = null;                     // 目前顯示的樓層
+let curRoom = null;                      // 目前選取的房號
+let svgEl = null;                        // 目前舞台上的 <svg> 元素
+let baseVB = null;                       // 該樓層的完整 viewBox [x, y, w, h]
+let vb = null;                           // 目前 viewBox（縮放/平移會改變它）
+let anim = null;                         // 動畫 requestAnimationFrame 代號
+
+const $ = (id) => document.getElementById(id);
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+// ───── 啟動：向伺服器要資料 ─────
+$('loading').style.display = 'flex';
+google.script.run
+  .withSuccessHandler(function (d) {
+    DATA = d;
+    buildTree('');
+    buildTabs();
+    $('loading').style.display = 'none';
+    if (d.floors.length) openFloor(d.floors[0]);       // 預設顯示第一個樓層
+  })
+  .withFailureHandler(function (e) {
+    $('loading').style.display = 'none';
+    showMsg('資料載入失敗：' + e.message);
+  })
+  .getInitData();
+
+// ───── 左側樹狀選單 ─────
+/** 依關鍵字建立樹狀選單；keyword 為空字串表示顯示全部 */
+function buildTree(keyword) {
+  const kw = keyword.trim().toLowerCase();
+  const tree = $('tree');
+  tree.innerHTML = '';
+  DATA.floors.forEach(function (fl) {
+    // 篩選此樓層符合關鍵字的房間
+    const list = DATA.rooms.filter(function (r) {
+      return r.floor === fl && (!kw || (r.room + ' ' + r.name).toLowerCase().indexOf(kw) > -1);
+    });
+    if (!list.length) return;
+
+    const box = document.createElement('div');
+    box.className = 'floor' + (kw || fl === curFloor ? ' open' : '');   // 搜尋時全部展開
+
+    const h = document.createElement('div');
+    h.className = 'floor-h';
+    h.innerHTML = '<span>' + esc(fl) + '</span><span class="cnt">' + list.length + ' 間</span>';
+    h.onclick = function () { box.classList.toggle('open'); };
+    box.appendChild(h);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'rooms';
+    list.forEach(function (r) {
+      const d = document.createElement('div');
+      d.className = 'room' + (r.hasSvg ? '' : ' nosvg') + (r.room === curRoom && r.floor === curFloor ? ' active' : '');
+      d.dataset.room = r.room;
+      d.dataset.floor = r.floor;
+      d.innerHTML = '<span class="no">' + esc(r.room) + '</span><span>' + esc(r.name || '（無房名）') + '</span>';
+      d.title = r.note || '';
+      d.onclick = function () { selectRoom(r.floor, r.room); };   // ★ 點擊房號 → 定位
+      wrap.appendChild(d);
+    });
+    box.appendChild(wrap);
+    tree.appendChild(box);
+  });
+}
+$('search').addEventListener('input', function () { buildTree(this.value); });
+
+// ───── 樓層頁籤 ─────
+function buildTabs() {
+  const t = $('tabs');
+  t.innerHTML = '';
+  DATA.floors.forEach(function (fl) {
+    const b = document.createElement('div');
+    b.className = 'tab' + (fl === curFloor ? ' on' : '');
+    b.textContent = fl;
+    b.onclick = function () { openFloor(fl); };
+    t.appendChild(b);
+  });
+}
+
+// ───── 載入並顯示某樓層 ─────
+/** 切換樓層；完成後執行 done 回呼（用於「先換樓層再定位」） */
+function openFloor(fl, done) {
+  curFloor = fl;
+  buildTabs();
+  if (svgCache[fl] !== undefined) { render(fl); done && done(); return; }
+  $('loading').style.display = 'flex';
+  google.script.run
+    .withSuccessHandler(function (svg) {
+      svgCache[fl] = svg || '';                       // 空字串代表沒有圖層
+      $('loading').style.display = 'none';
+      render(fl); done && done();
+    })
+    .withFailureHandler(function (e) {
+      $('loading').style.display = 'none';
+      showMsg('圖層載入失敗：' + e.message);
+    })
+    .getFloorSvg(fl);
+}
+
+/** 把 SVG 放進舞台，並依試算表資料畫上房號/房名標籤 */
+function render(fl) {
+  const stage = $('stage');
+  const old = stage.querySelector('svg');
+  if (old) old.remove();
+  svgEl = null;
+  if (!svgCache[fl]) { showMsg('「' + fl + '」尚無對應圖層（請檢查 FLOOR_MAP 與 SVG 檔）'); return; }
+
+  stage.insertAdjacentHTML('afterbegin', svgCache[fl]);
+  svgEl = stage.querySelector('svg');
+  svgEl.removeAttribute('width'); svgEl.removeAttribute('height');
+  baseVB = svgEl.getAttribute('viewBox').split(/\s+/).map(Number);
+  vb = baseVB.slice();
+  applyVB();
+
+  buildLabels(svgEl, fl, 1);                          // 畫房號/房名標籤（螢幕版倍率 1）
+
+  // 切換樓層時，若目前選取的房間在此樓層，重新套用特效
+  if (curRoom && DATA.rooms.some(function (r) { return r.floor === fl && r.room === curRoom; })) highlight(curRoom, false);
+  hud(fl);
+}
+
+
+/**
+ * 在指定的 svg 上建立「房號房名標籤圖層」。
+ *  - svg：目標 <svg> 元素（螢幕畫面或列印頁都能用）
+ *  - fl ：樓層名稱，用來從 DATA.rooms 篩出該層房間
+ *  - k  ：字體與外框的放大倍率（螢幕=1；列印為了清楚會放大）
+ * 只有「試算表有、SVG 錨點也有」的房號才會畫出標籤。
+ */
+function buildLabels(svg, fl, k) {
+  const g = document.createElementNS(SVGNS, 'g');
+  g.setAttribute('id', 'labels');
+  svg.appendChild(g);
+  const missing = [];
+  DATA.rooms.filter(function (r) { return r.floor === fl; }).forEach(function (r) {
+    const a = svg.querySelector('.anchor[data-room="' + cssEsc(r.room) + '"]');
+    if (!a) { missing.push(r.room); return; }              // 試算表有房號、圖上沒座標
+    const x = +a.getAttribute('cx'), y = +a.getAttribute('cy');
+    const nm = r.name || '';
+    const w = (Math.max(r.room.length * 6.2, nm.length * 8.6) + 8) * k;   // 依文字長度估算外框寬
+    const h = (nm ? 23 : 13) * k;
+    // 列印時（k≠1）用行內樣式放大字體；螢幕版沿用 CSS，選取時才能放大
+    const fn = k === 1 ? '' : ' style="font-size:' + (9 * k) + 'px"';
+    const ft = k === 1 ? '' : ' style="font-size:' + (8.5 * k) + 'px"';
+    const L = document.createElementNS(SVGNS, 'g');
+    L.setAttribute('class', 'lbl');
+    L.dataset.room = r.room;
+    L.innerHTML =
+      '<rect x="' + (x - w / 2) + '" y="' + (y - h / 2) + '" width="' + w + '" height="' + h + '" rx="2"/>' +
+      '<text class="n"' + fn + ' x="' + x + '" y="' + (y - (nm ? 1 : -3) * k) + '">' + esc(r.room) + '</text>' +
+      (nm ? '<text class="t"' + ft + ' x="' + x + '" y="' + (y + 8.5 * k) + '">' + esc(nm) + '</text>' : '');
+    g.appendChild(L);
+  });
+  if (missing.length) console.warn('[' + fl + '] 以下房號在圖層中找不到座標錨點：', missing.join(', '));
+}
+
+// ═════════════════════ 列印功能 ═════════════════════
+// 流程：開對話框 → 勾選樓層/紙張/方向 → 載入尚未快取的 SVG → 組出「一層一頁」的列印區 → window.print()
+
+/** 紙張尺寸（mm，直印時的寬×高） */
+const PAPER = { A4: [210, 297], A3: [297, 420] };
+const MARGIN = 10;                                          // 頁邊距 mm
+
+$('printBtn').onclick = function () {
+  const box = $('pfloors');
+  box.innerHTML = '';
+  DATA.floors.forEach(function (fl) {                       // 依試算表的樓層產生勾選框
+    const lb = document.createElement('label');
+    lb.innerHTML = '<input type="checkbox" class="pf" value="' + esc(fl) + '"' + (fl === curFloor ? ' checked' : '') + '> ' + esc(fl);
+    box.appendChild(lb);
+  });
+  $('pall').checked = false;
+  $('pstatus').textContent = '';
+  $('pmodal').style.display = 'flex';
+};
+$('pall').onchange = function () {                          // 全選／取消全選
+  const on = this.checked;
+  document.querySelectorAll('.pf').forEach(function (c) { c.checked = on; });
+};
+$('pcancel').onclick = function () { $('pmodal').style.display = 'none'; };
+
+$('pgo').onclick = function () {
+  const floors = Array.prototype.map.call(document.querySelectorAll('.pf:checked'), function (c) { return c.value; });
+  if (!floors.length) { $('pstatus').textContent = '請至少勾選一個樓層'; return; }
+  const size = document.querySelector('input[name=psize]:checked').value;
+  const ori = document.querySelector('input[name=pori]:checked').value;
+  const withList = $('plist').checked;                      // 是否列印房號清單
+  $('pgo').disabled = true;
+  $('pstatus').textContent = '準備中…';
+  loadSvgs(floors, function () {                            // 全部樓層的 SVG 都就緒後才組版
+    buildPrintPages(floors, size, ori, withList);
+    $('pstatus').textContent = '';
+    $('pgo').disabled = false;
+    $('pmodal').style.display = 'none';
+    setTimeout(function () { window.print(); }, 200);       // 稍等排版完成再開啟列印視窗
+  });
+};
+// 列印完成（或取消）後清掉列印區，釋放記憶體
+window.addEventListener('afterprint', function () { $('printArea').innerHTML = ''; });
+
+/** 依序載入多個樓層的 SVG（已快取的直接略過） */
+function loadSvgs(floors, done) {
+  const todo = floors.filter(function (f) { return svgCache[f] === undefined; });
+  (function next(i) {
+    if (i >= todo.length) { done(); return; }
+    $('pstatus').textContent = '載入 ' + todo[i] + '（' + (i + 1) + '/' + todo.length + '）…';
+    google.script.run
+      .withSuccessHandler(function (svg) { svgCache[todo[i]] = svg || ''; next(i + 1); })
+      .withFailureHandler(function (e) { $('pstatus').textContent = '載入失敗：' + e.message; $('pgo').disabled = false; })
+      .getFloorSvg(todo[i]);
+  })(0);
+}
+
+/** 產生列印頁：每個樓層一個 .page，並用 @page 設定紙張大小與方向 */
+function buildPrintPages(floors, size, ori, withList) {
+  const p = PAPER[size];
+  const W = ori === 'landscape' ? p[1] : p[0];              // 該方向下的紙張寬、高（mm）
+  const H = ori === 'landscape' ? p[0] : p[1];
+  $('pageStyle').textContent = '@page{size:' + size + ' ' + ori + ';margin:' + MARGIN + 'mm}';
+
+  const area = $('printArea');
+  area.innerHTML = '';
+  const today = new Date().toLocaleDateString('zh-TW');
+  floors.forEach(function (fl) {
+    if (!svgCache[fl]) return;                              // 沒有圖層的樓層略過
+    const page = document.createElement('div');
+    page.className = 'page';
+    // 內容區比紙張小 1mm，避免因進位誤差多出一張空白頁
+    page.style.width = (W - 2 * MARGIN - 1) + 'mm';
+    page.style.height = (H - 2 * MARGIN - 1) + 'mm';
+    page.innerHTML = '<div class="ph"><b>' + esc(fl) + ' 平面圖</b><span>' + esc(document.title) + '｜' + today + '</span></div>';
+    const bodyH = H - 2 * MARGIN - 1 - 11;                  // 扣掉標題列後，圖面可用高度（mm）
+    const body = document.createElement('div');
+    body.className = 'pbody';
+    body.style.height = bodyH + 'mm';
+    page.appendChild(body);
+
+    // —— 左側房號清單（依試算表中的順序排列）——
+    if (withList) {
+      const list = DATA.rooms.filter(function (r) { return r.floor === fl; });
+      const n = list.length + 1;                            // +1 為清單標題列
+      const lh = Math.min(7, bodyH / n);                    // 每列高度 mm：房間多時自動縮小以放進一頁
+      const fs = Math.min(4.2, lh * 0.68);                  // 字體大小 mm（上限 4.2mm ≈ 12pt）
+      const box = document.createElement('div');
+      box.className = 'plist';
+      box.style.width = (W * (ori === 'landscape' ? 0.2 : 0.25)) + 'mm';   // 清單欄寬
+      box.style.fontSize = fs + 'mm';
+      box.style.lineHeight = lh + 'mm';
+      box.innerHTML = '<div class="pt">房號清單（' + list.length + ' 間）</div>' + list.map(function (r) {
+        return '<div class="pr"><b>' + esc(r.room) + '</b><span>' + esc(r.name) + '</span></div>';
+      }).join('');
+      body.appendChild(box);
+    }
+
+    // —— 右側平面圖 ——
+    body.insertAdjacentHTML('beforeend', svgCache[fl]);
+    const svg = body.querySelector('svg');
+    svg.removeAttribute('width'); svg.removeAttribute('height');
+    svg.style.cssText = 'flex:1 1 0;min-width:0;width:0;height:100%';   // 佔滿剩餘寬度，等比縮放置中
+    buildLabels(svg, fl, 1.25);                             // 列印標籤放大 1.25 倍較清楚
+    area.appendChild(page);
+  });
+}
+
+// ───── 點擊房號：切樓層 → 定位 ─────
+function selectRoom(fl, room) {
+  curRoom = room;
+  document.querySelectorAll('.room').forEach(function (e) {
+    e.classList.toggle('active', e.dataset.room === room && e.dataset.floor === fl);
+  });
+  if (fl !== curFloor || !svgEl) openFloor(fl, function () { highlight(room, true); });
+  else highlight(room, true);
+}
+
+/** 在圖面上標示指定房間：雷達環＋十字線＋角框，並平滑放大到該位置 */
+function highlight(room, zoom) {
+  if (!svgEl) return;
+  // 清除上一次特效與選取狀態
+  const oldFx = svgEl.querySelector('#fx'); if (oldFx) oldFx.remove();
+  svgEl.querySelectorAll('.lbl.sel').forEach(function (e) { e.classList.remove('sel'); });
+
+  const a = svgEl.querySelector('.anchor[data-room="' + cssEsc(room) + '"]');
+  if (!a) { showMsg('房號 ' + room + ' 在圖層中尚未設定座標（請在 SVG 新增 anchor）'); return; }
+  const x = +a.getAttribute('cx'), y = +a.getAttribute('cy');
+
+  const lab = svgEl.querySelector('.lbl[data-room="' + cssEsc(room) + '"]');
+  if (lab) { lab.classList.add('sel'); lab.parentNode.appendChild(lab); }   // 移到最上層
+
+  const fx = document.createElementNS(SVGNS, 'g');
+  fx.setAttribute('id', 'fx');
+  const W = baseVB[2], H = baseVB[3];
+  fx.innerHTML =
+    '<line class="cross" x1="0" y1="' + y + '" x2="' + W + '" y2="' + y + '"/>' +
+    '<line class="cross" x1="' + x + '" y1="0" x2="' + x + '" y2="' + H + '"/>' +
+    '<circle class="ring" cx="' + x + '" cy="' + y + '" r="70"/>' +
+    '<circle class="ring r2" cx="' + x + '" cy="' + y + '" r="70"/>' +
+    '<circle class="ring r3" cx="' + x + '" cy="' + y + '" r="70"/>' +
+    '<circle class="core" cx="' + x + '" cy="' + (y + 22) + '" r="3.5"/>' +
+    bracket(x, y, 46);
+  svgEl.insertBefore(fx, svgEl.querySelector('#labels'));   // 特效在標籤之下
+
+  if (zoom) {                                                // 平滑放大至房間周圍
+    const w = baseVB[2] * 0.38, h = w * baseVB[3] / baseVB[2];
+    flyTo([x - w / 2, y - h / 2, w, h]);
+  }
+  const r = DATA.rooms.filter(function (r) { return r.floor === curFloor && r.room === room; })[0];
+  hud(curFloor, r);
+}
+
+/** 四個角框（瞄準框）的 path */
+function bracket(x, y, s) {
+  const l = 12, p = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(function (c) {
+    const cx = x + c[0] * s, cy = y + c[1] * s;
+    return '<path class="brk" d="M' + (cx - c[0] * l) + ' ' + cy + 'L' + cx + ' ' + cy + 'L' + cx + ' ' + (cy - c[1] * l) + '"/>';
+  });
+  return p.join('');
+}
+
+// ───── viewBox 動畫、拖曳、滾輪縮放 ─────
+function applyVB() { svgEl && svgEl.setAttribute('viewBox', vb.join(' ')); }
+
+/** 以 easeInOut 動畫把 viewBox 從目前值平滑移到目標值 */
+function flyTo(target, ms) {
+  cancelAnimationFrame(anim);
+  const from = vb.slice(), t0 = performance.now(), dur = ms || 900;
+  (function step(t) {
+    let k = Math.min(1, (t - t0) / dur);
+    k = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    vb = from.map(function (v, i) { return v + (target[i] - v) * k; });
+    applyVB();
+    if (k < 1) anim = requestAnimationFrame(step);
+  })(t0);
+}
+
+// 滾輪縮放（以游標位置為中心）
+$('stage').addEventListener('wheel', function (e) {
+  if (!svgEl) return; e.preventDefault();
+  const r = svgEl.getBoundingClientRect(), f = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+  const mx = vb[0] + (e.clientX - r.left) / r.width * vb[2];
+  const my = vb[1] + (e.clientY - r.top) / r.height * vb[3];
+  const nw = Math.min(baseVB[2] * 1.5, Math.max(120, vb[2] * f)), nh = nw * vb[3] / vb[2];
+  vb = [mx - (mx - vb[0]) * nw / vb[2], my - (my - vb[1]) * nh / vb[3], nw, nh];
+  applyVB();
+}, { passive: false });
+
+// 拖曳平移
+let drag = null;
+$('stage').addEventListener('mousedown', function (e) { drag = { x: e.clientX, y: e.clientY, vb: vb && vb.slice() }; $('stage').classList.add('drag'); });
+window.addEventListener('mouseup', function () { drag = null; $('stage').classList.remove('drag'); });
+window.addEventListener('mousemove', function (e) {
+  if (!drag || !svgEl) return;
+  const r = svgEl.getBoundingClientRect();
+  vb = [drag.vb[0] - (e.clientX - drag.x) / r.width * drag.vb[2],
+        drag.vb[1] - (e.clientY - drag.y) / r.height * drag.vb[3], drag.vb[2], drag.vb[3]];
+  applyVB();
+});
+// 雙擊舞台：回到整層全景
+$('stage').addEventListener('dblclick', function () { baseVB && flyTo(baseVB.slice()); });
+
+// ───── 小工具 ─────
+function hud(fl, r) {
+  $('hud').innerHTML = 'FLOOR ▸ ' + esc(fl) +
+    (r ? '<br>TARGET ▸ ' + esc(r.room) + ' ' + esc(r.name) + (r.note ? '<br>NOTE ▸ ' + esc(r.note) : '') : '') +
+    '<br><span style="color:#6f93aa">滾輪縮放｜拖曳平移｜雙擊回全景</span>';
+}
+function showMsg(t) {
+  const m = $('msg'); m.textContent = t; m.style.display = 'block';
+  clearTimeout(showMsg.t); showMsg.t = setTimeout(function () { m.style.display = 'none'; }, 3500);
+}
+/** HTML 跳脫，避免試算表內容含特殊字元破壞版面（也避免注入） */
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+/** CSS 屬性選擇器用的跳脫 */
+function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+</script>
+</body>
+</html>
