@@ -148,7 +148,13 @@ svg .brk{fill:none;stroke:var(--amber);stroke-width:2.2}
 .box2 h2{margin:0 0 10px;font-size:16px;color:var(--cyan)} #wbox h2{color:var(--amber)}
 #rsearch{width:100%;padding:7px 10px;margin-bottom:8px;background:#06121f;border:1px solid var(--line);
   color:var(--text);border-radius:4px;outline:none}
-#rlist{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:4px 10px}
+#bbox{margin-bottom:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:4px}
+#bbox summary{cursor:pointer;color:var(--amber);font-size:13px}
+#btxt{width:100%;height:110px;margin-top:6px;padding:7px 10px;background:#06121f;border:1px solid var(--line);
+  color:var(--text);border-radius:4px;outline:none;resize:vertical;font:12px/1.5 Consolas,"Microsoft JhengHei",monospace}
+#bres{margin-top:6px;font-size:12px;line-height:1.6;color:var(--cyan2)}
+#bres .bad{color:var(--amber)}
+#rlist{max-height:38vh;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:4px 10px}
 .rf{margin:6px 0 2px;padding:4px 0;border-bottom:1px solid var(--line);color:var(--cyan2);font-weight:700;
   display:flex;align-items:center;gap:6px}
 .rg{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
@@ -212,6 +218,15 @@ svg .brk{fill:none;stroke:var(--amber);stroke-width:2.2}
 <!-- ═════════ 選擇房號對話框 ═════════ -->
 <div id="rmodal"><div id="rbox" class="box2">
   <h2>選擇要在圖上標示的房號</h2>
+  <details id="bbox" open>
+    <summary>批次填入（貼上施工申請文字，自動抓「施工區域」的房號）</summary>
+    <textarea id="btxt" placeholder="貼上含有「施工區域：127、212」這類文字的內容…"></textarea>
+    <div style="margin-top:6px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button id="bgo" class="go" style="margin:0">解析並勾選</button>
+      <label style="font-size:12px;color:var(--dim);cursor:pointer"><input type="checkbox" id="badd"> 附加到目前已選（不清除原有勾選）</label>
+    </div>
+    <div id="bres"></div>
+  </details>
   <input id="rsearch" placeholder="搜尋房號或房名…">
   <div id="rlist"></div>
   <div id="rfoot"><span id="rcount"></span>
@@ -458,6 +473,41 @@ function buildPicker() {
   $('rcount').textContent = '已選 ' + marked().length + ' 間';
 }
 $('pmarkBtn').onclick = function () { $('rsearch').value = ''; buildPicker(); $('rmodal').style.display = 'flex'; };
+
+/**
+ * 批次填入：從貼上的文字中，只擷取「施工區域：」那一行的房號。
+ *  - 支援全形／半形冒號；括號內的中文說明（如「申請進出ㄧ二樓走廊」）自然被忽略
+ *  - 房號格式：3 位數字，前面可有 1 個英文字母（101、B107、R201）；4 位數（如 2026）不會誤抓
+ *  - 重複的房號只算一次，順序依出現先後
+ */
+function parseAreas(text) {
+  const found = [], seen = {};
+  const lineRe = /施工區域\s*[:：]\s*([^\n\r]*)/g;           // 取得「施工區域：」之後到行尾
+  let m;
+  while ((m = lineRe.exec(text)) !== null) {
+    const nums = m[1].match(/(?<![A-Za-z0-9])[A-Za-z]?\d{3}(?![A-Za-z0-9])/g) || [];
+    nums.forEach(function (n) {
+      const k = n.toUpperCase();
+      if (!seen[k]) { seen[k] = 1; found.push(k); }
+    });
+  }
+  return found;
+}
+$('bgo').onclick = function () {
+  const nums = parseAreas($('btxt').value);
+  if (!nums.length) { $('bres').innerHTML = '<span class="bad">找不到「施工區域：」後面的房號，請確認貼上的內容</span>'; return; }
+  if (!$('badd').checked) markSet.clear();                    // 預設：以這批房號取代原有勾選
+  const ok = [], bad = [];
+  nums.forEach(function (n) {
+    const hit = DATA.rooms.filter(function (r) { return r.room.toUpperCase() === n; });   // 房號在試算表中對應的列
+    if (hit.length) { hit.forEach(function (r) { markSet.add(mkKey(r.floor, r.room)); }); ok.push(n); }
+    else bad.push(n);
+  });
+  $('bres').innerHTML = '彙整房號：' + esc(nums.join('、')) + '（共 ' + nums.length + ' 間）' +
+    (bad.length ? '<br><span class="bad">試算表中找不到：' + esc(bad.join('、')) + '</span>' : '');
+  $('rsearch').value = '';
+  buildPicker();                                              // 重畫清單，顯示已勾選的結果
+};
 $('rsearch').addEventListener('input', buildPicker);
 $('rclear').onclick = function () { markSet.clear(); buildPicker(); };
 $('rdone').onclick = function () { $('rmodal').style.display = 'none'; updMarkBtn(); };
