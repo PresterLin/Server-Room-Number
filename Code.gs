@@ -6,6 +6,8 @@
  *   1. doGet()         ：提供網頁入口（部署為 Web App 後開啟的網址）
  *   2. getInitData()   ：讀取 Google 試算表「房號房名」A:D，回傳給前端畫樹狀選單
  *   3. getFloorSvg()   ：依樓層名稱，回傳對應的 SVG 圖層（存放在專案的 SVG_xxx.html 檔）
+ *   4. getFloorImage() ：依樓層名稱，從 Google Drive 資料夾讀取 3D 轉 2D 的彩色 PNG 底圖，
+ *                        轉成 data URL 回傳給網頁（不需把圖檔設成公開分享）
  *
  *  專案檔案結構（Apps Script 編輯器左側「檔案」）：
  *   ├─ Code.gs        （本檔，類型：指令碼）
@@ -13,6 +15,7 @@
  *   ├─ SVG_B1F.html   （B1F 圖層，類型：HTML）
  *   ├─ SVG_1F.html    （1F 圖層）
  *   ├─ SVG_2F.html … SVG_5F.html、SVG_R.html（屋頂層）
+ *   （PNG 底圖不在專案內，放在 Drive 的 IMG_FOLDER_ID 資料夾，檔名見 FLOOR_IMG_MAP）
  *
  *  注意：Apps Script 的「HTML」檔在編輯器中新增時，名稱不必加 .html（系統會自動加）。
  */
@@ -40,8 +43,28 @@ const FLOOR_MAP = {
   '屋頂層': 'SVG_R'
 };
 
+/**
+ * 【底圖資料夾】存放 3D 轉 2D 彩色 PNG 底圖的 Google Drive 資料夾 ID
+ * （資料夾網址 /folders/ 後面那一串）。Web App 以「我」的身分執行時，使用者不需要有此資料夾的權限。
+ */
+const IMG_FOLDER_ID = '1DIDm7i0jXFPo5N9Rv-Gz2p3vQxUNdZka';
+
+/**
+ * 【底圖檔名對照表】試算表「樓層」欄的文字  →  Drive 資料夾內的 PNG 檔名（需完全一致，含副檔名）
+ * 沒有列在這裡的樓層（或 Drive 找不到檔案）時，網頁會自動退回「牆線圖」，不會當機。
+ */
+const FLOOR_IMG_MAP = {
+  'B1F': 'B1F.png',
+  '1F': '1F.png',
+  '2F': '2F.png',
+  '3F': '3F.png',
+  '4F': '4F.png',
+  '5F': '5F.png',
+  '屋頂層': '屋頂層.png'
+};
+
 /** 網頁標題 */
-const APP_TITLE = '台電彰化雲端資料中心｜樓層導覽';
+const APP_TITLE = '華陽備勤大樓｜樓層導覽';
 
 // ───────────────────────── 網頁入口 ─────────────────────────
 
@@ -108,6 +131,77 @@ function getFloorSvg(floor) {
   } catch (e) {
     return null;                                  // 檔案不存在
   }
+}
+
+/**
+ * 在底圖資料夾中尋找指定檔名的圖檔（比對方式比 getFilesByName 寬鬆、也能回報原因）。
+ *  - 全形／半形、大小寫、前後或中間多餘空白都視為相同（例如「1F.png」與「1F.png 」「１Ｆ.PNG」）
+ *  - 同名檔案有多個時，取「最後修改」的那一個
+ *  - 若找到的是 Drive「捷徑」，自動改讀捷徑指向的原始檔案
+ * 回傳：{ file: 找到的檔案或 null, count: 符合的檔案數, names: 資料夾內所有檔名（找不到時用來提示） }
+ */
+function findImageFile_(name) {
+  const norm = function (t) { return String(t).normalize('NFKC').replace(/\s+/g, '').toLowerCase(); };
+  const want = norm(name);
+  const wantBase = want.replace(/\.[^.]+$/, '');                 // 不含副檔名的部分
+  const it = DriveApp.getFolderById(IMG_FOLDER_ID).getFiles();
+  const hits = [], names = [];
+  while (it.hasNext()) {
+    const f = it.next();
+    const n = norm(f.getName());
+    names.push(f.getName());
+    if (n === want || n.replace(/\.[^.]+$/, '') === wantBase) hits.push(f);
+  }
+  hits.sort(function (x, y) { return y.getLastUpdated() - x.getLastUpdated(); });   // 最新的排前面
+  let file = hits.length ? hits[0] : null;
+  if (file && file.getMimeType() === 'application/vnd.google-apps.shortcut') {
+    file = DriveApp.getFileById(file.getTargetId());              // 捷徑 → 原始檔
+  }
+  return { file: file, count: hits.length, names: names };
+}
+
+/**
+ * 依樓層名稱，從 Drive 資料夾讀取 PNG 底圖。
+ * 回傳物件：{ url: 'data:image/png;base64,…' } 成功；{ url: null, msg: '失敗原因' } 失敗。
+ * 失敗原因會顯示在網頁上，方便找出問題（找不到檔、沒有權限、檔案損毀…）。
+ * 注意：第一次執行會要求「Google Drive」授權，請按「允許」。
+ */
+function getFloorImage(floor) {
+  const name = FLOOR_IMG_MAP[floor];
+  if (!name) return { url: null, msg: 'FLOOR_IMG_MAP 沒有設定「' + floor + '」的檔名' };
+  try {
+    const r = findImageFile_(name);
+    if (!r.file) {
+      return { url: null, msg: '資料夾內找不到「' + name + '」。目前資料夾的檔案：' + r.names.join('、') };
+    }
+    const blob = r.file.getBlob();
+    let type = blob.getContentType();
+    if (!type || type.indexOf('image/') !== 0) {                  // Drive 記錄的類型不是圖片時，依副檔名推測
+      type = /\.jpe?g$/i.test(r.file.getName()) ? 'image/jpeg' : 'image/png';
+    }
+    return { url: 'data:' + type + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+  } catch (e) {
+    return { url: null, msg: '讀取「' + name + '」失敗：' + e.message };
+  }
+}
+
+/**
+ * 【診斷工具】在 Apps Script 編輯器上方選擇函式「diagnoseImages」按「執行」，
+ * 再看下方「執行記錄」，會逐層列出：找到幾個符合的檔案、檔案 ID、類型、大小、最後修改時間、是否讀取成功。
+ */
+function diagnoseImages() {
+  Object.keys(FLOOR_IMG_MAP).forEach(function (fl) {
+    const name = FLOOR_IMG_MAP[fl];
+    try {
+      const r = findImageFile_(name);
+      if (!r.file) { Logger.log('【' + fl + '】找不到「' + name + '」。資料夾內檔案：' + r.names.join(' | ')); return; }
+      const f = r.file, bytes = f.getBlob().getBytes().length;
+      Logger.log('【' + fl + '】OK　符合檔案數=' + r.count + '　名稱=「' + f.getName() + '」(長度 ' + f.getName().length +
+        ')　ID=' + f.getId() + '　類型=' + f.getMimeType() + '　大小=' + Math.round(bytes / 1024) + 'KB　修改=' + f.getLastUpdated());
+    } catch (e) {
+      Logger.log('【' + fl + '】失敗：' + e.message);
+    }
+  });
 }
 
 /**
