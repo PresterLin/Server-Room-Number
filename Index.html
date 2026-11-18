@@ -276,6 +276,15 @@ svg.has-base .wall-line{stroke:#7df3ff;opacity:.9}
 
 // ───── 全域狀態 ─────
 let DATA = { floors: [], rooms: [] };   // 由 getInitData() 取得
+/**
+ * 底圖直連網址樣板（{id} 會換成 Drive 檔案 ID），依序嘗試，全部失敗才退回伺服器 base64 方式。
+ * 第一個保留原圖與透明背景；需要時可在這裡增減或調整順序。
+ */
+const IMG_URL_TEMPLATES = [
+  'https://drive.google.com/uc?export=view&id={id}',
+  'https://lh3.googleusercontent.com/d/{id}'
+];
+const imgWait = {};                      // 載入中的底圖：{ 樓層: [等待這張圖的回呼] }（避免同一張圖重複下載）
 const imgMsg = {};                       // 底圖載入失敗的原因：{ 樓層: '訊息' }
 const imgCache = {};                     // 底圖（data URL）快取：{ 樓層: 'data:image/png;base64,…' 或 '' }
 const layerState = { base: true, walls: false, lbl: true };   // 使用者的圖層開關
@@ -298,7 +307,7 @@ google.script.run
     buildTree('');
     buildTabs();
     $('loading').style.display = 'none';
-    if (d.floors.length) openFloor(d.floors[0]);       // 預設顯示第一個樓層
+    if (d.floors.length) openFloor(d.floors[0], function () { setTimeout(prefetchAll, 800); });   // 預設顯示第一個樓層，之後背景預載其他樓層
   })
   .withFailureHandler(function (e) {
     $('loading').style.display = 'none';
@@ -361,31 +370,70 @@ function buildTabs() {
 
 // ───── 載入並顯示某樓層 ─────
 /**
- * 確保某樓層的資料都已載入：先載 SVG，若 SVG 內有底圖（image.basemap）再載底圖。
+ * 確保某樓層的資料都已載入：SVG 與底圖同時載入（底圖優先用 Drive 連結直連）。
  * wantImg=false 時略過底圖（列印選「只印牆線」時用）。出錯時呼叫 fail(錯誤訊息)。
  */
-function ensureFloor(fl, wantImg, ok, fail) {
-  function giveUp(msg) {                                                         // 底圖讀不到：記錄原因，退回牆線圖
+function ensureFloor(fl, wantImg, ok, fail, bg) {
+  let pending = 2, failed = false;
+  function done() { if (!failed && --pending === 0) ok(); }
+  // ① 底圖：與 SVG「同時」開始載入（以往是 SVG 載完才載底圖）
+  if (!wantImg || imgCache[fl] !== undefined) done(); else getImage(fl, bg, done);
+  // ② SVG
+  if (svgCache[fl] !== undefined) { done(); return; }
+  google.script.run
+    .withSuccessHandler(function (svg) { svgCache[fl] = svg || ''; done(); })      // 空字串代表沒有圖層
+    .withFailureHandler(function (e) { if (!failed) { failed = true; fail(e.message); } })
+    .getFloorSvg(fl);
+}
+
+/**
+ * 取得底圖並存入 imgCache[fl]：
+ *  1) 若「統計」表有該樓層的 Drive 連結 → 讓瀏覽器直接向 Google 下載（依 IMG_URL_TEMPLATES 逐一嘗試）
+ *  2) 都失敗 → 退回伺服器 getFloorImage()（Drive 資料夾 + base64，較慢但不需分享權限）
+ * bg=true（背景預載）時，直連失敗就先放棄、不呼叫伺服器，等使用者真的開該樓層時再走完整流程。
+ */
+function getImage(fl, bg, cb) {
+  if (imgCache[fl] !== undefined) { cb(); return; }
+  if (imgWait[fl]) { imgWait[fl].push(cb); return; }          // 已有人在載同一張 → 排隊等結果
+  imgWait[fl] = [cb];
+  function finish() { const w = imgWait[fl]; delete imgWait[fl]; w.forEach(function (f) { f(); }); }
+  function giveUp(msg) {
+    if (bg) { finish(); return; }                              // 背景預載失敗：不記錄，之後再試
     imgCache[fl] = ''; imgMsg[fl] = msg || '未知原因';
-    console.warn('[底圖 ' + fl + '] ' + imgMsg[fl]);
-    ok();
+    console.warn('[底圖 ' + fl + '] ' + imgMsg[fl]); finish();
   }
-  function loadImg(retry) {
-    if (!wantImg || imgCache[fl] !== undefined || svgCache[fl].indexOf('class="basemap"') === -1) { ok(); return; }
+  function viaServer(retry, why) {
+    if (bg) { finish(); return; }
     google.script.run
       .withSuccessHandler(function (r) {
-        if (r && r.url) { imgCache[fl] = r.url; delete imgMsg[fl]; ok(); } else giveUp(r && r.msg);   // 伺服器回報找不到/讀取失敗
+        if (r && r.url) { imgCache[fl] = r.url; delete imgMsg[fl]; finish(); } else giveUp(r && r.msg);
       })
-      .withFailureHandler(function (e) {                                         // 呼叫本身失敗（網路、Drive 暫時性錯誤）→ 重試一次
-        if (retry > 0) setTimeout(function () { loadImg(retry - 1); }, 800); else giveUp(e && e.message);
+      .withFailureHandler(function (e) {
+        if (retry > 0) setTimeout(function () { viaServer(retry - 1, why); }, 800); else giveUp(e && e.message);
       })
       .getFloorImage(fl);
   }
-  if (svgCache[fl] !== undefined) { loadImg(1); return; }
-  google.script.run
-    .withSuccessHandler(function (svg) { svgCache[fl] = svg || ''; loadImg(1); })  // 空字串代表沒有圖層
-    .withFailureHandler(function (e) { fail(e.message); })
-    .getFloorSvg(fl);
+  const id = DATA.imgIds && DATA.imgIds[fl];
+  if (!id) { viaServer(1); return; }                          // 沒有連結 → 走舊方式
+  (function tryUrl(i) {
+    if (i >= IMG_URL_TEMPLATES.length) { viaServer(1); return; }
+    const url = IMG_URL_TEMPLATES[i].replace('{id}', id);
+    const im = new Image();
+    const timer = setTimeout(function () { im.onload = im.onerror = null; tryUrl(i + 1); }, 25000);   // 逾時換下一個
+    im.onload = function () { clearTimeout(timer); imgCache[fl] = url; delete imgMsg[fl]; finish(); };
+    im.onerror = function () { clearTimeout(timer); tryUrl(i + 1); };
+    im.src = url;                                              // 預先下載；瀏覽器快取後，SVG 的 <image> 立即顯示
+  })(0);
+}
+
+/** 背景預載：第一個樓層顯示後，依序把其他樓層的 SVG 與底圖先抓好，切換樓層就幾乎不用等 */
+function prefetchAll() {
+  const list = DATA.floors.filter(function (f) { return svgCache[f] === undefined || imgCache[f] === undefined; });
+  (function next(i) {
+    if (i >= list.length) return;
+    ensureFloor(list[i], true, function () { setTimeout(function () { next(i + 1); }, 300); },
+      function () { setTimeout(function () { next(i + 1); }, 300); }, true);
+  })(0);
 }
 
 /** 切換樓層；完成後執行 done 回呼（用於「先換樓層再定位」） */

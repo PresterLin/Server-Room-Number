@@ -63,6 +63,13 @@ const FLOOR_IMG_MAP = {
   '屋頂層': '屋頂層.png'
 };
 
+/**
+ * 【底圖連結來源】工作表「統計」的 D:F 欄（D=樓層、F=彩色底圖的 Google Drive 連結）。
+ * 網頁會直接用這些連結的「檔案 ID」從 Google 伺服器載入底圖，比經過 Apps Script 轉傳更快。
+ * 讀不到或載入失敗時，會自動退回原本的 getFloorImage()（資料夾 + base64）方式。
+ */
+const LINK_SHEET_NAME = '統計';
+
 /** 網頁標題 */
 const APP_TITLE = '華陽備勤大樓｜樓層導覽';
 
@@ -115,7 +122,31 @@ function getInitData() {
       hasSvg: !!FLOOR_MAP[floor]                  // 該樓層是否有對應圖層
     });
   });
-  return { floors: floors, rooms: rooms };
+  return { floors: floors, rooms: rooms, imgIds: getImageIds_() };
+}
+
+/**
+ * 從「統計」工作表 D:F 讀出 { 樓層: Drive 檔案 ID }。
+ * F 欄可以是純文字網址，也可以是「文字加超連結」；支援 /file/d/ID/view 與 ?id=ID 兩種網址格式，也接受直接貼 ID。
+ * 工作表不存在或格式不對時回傳空物件（網頁會改走舊方式，不會當機）。
+ */
+function getImageIds_() {
+  const ids = {};
+  try {
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(LINK_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return ids;
+    const rng = sh.getRange(2, 4, sh.getLastRow() - 1, 3);          // 第 2 列起的 D:F
+    const vals = rng.getDisplayValues();
+    const rich = rng.getRichTextValues();
+    for (let i = 0; i < vals.length; i++) {
+      const floor = String(vals[i][0]).trim();
+      if (!floor) continue;
+      const src = rich[i][2].getLinkUrl() || String(vals[i][2]).trim();   // 優先取超連結，否則用儲存格文字
+      const m = src.match(/\/d\/([A-Za-z0-9_-]{15,})/) || src.match(/[?&]id=([A-Za-z0-9_-]{15,})/) || src.match(/^([A-Za-z0-9_-]{25,})$/);
+      if (m) ids[floor] = m[1];
+    }
+  } catch (e) { /* 讀取失敗就視為沒有連結 */ }
+  return ids;
 }
 
 /**
